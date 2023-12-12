@@ -1,70 +1,46 @@
 import cv2
-import numpy as np
-import HandTrackingModule as htm
-import time
-import autopy
-
-##########################
-wCam, hCam = 640, 480
-frameR = 100  # Frame Reduction
-smoothening = 7
-#########################
-
-pTime = 0
-plocX, plocY = 0, 0
-clocX, clocY = 0, 0
+import mediapipe as mp
+import pyautogui
 
 cap = cv2.VideoCapture(0)
-cap.set(3, wCam)
-cap.set(4, hCam)
-detector = htm.handDetector(maxHands=1)
-wScr, hScr = autopy.screen.size()
-# print(wScr, hScr)
+hand_detector = mp.solutions.hands.Hands()
+drawing_utils = mp.solutions.drawing_utils
+screen_width, screen_height = pyautogui.size()
+index_y = 0
 
 while True:
-    # 1. Find hand Landmarks
-    success, img = cap.read()
-    img = detector.findHands(img)
-    lmList, bbox = detector.findPosition(img)
-    # 2. Get the tip of the index and middle fingers
-    if len(lmList) != 0:
-        x1, y1 = lmList[8][1:]
-        x2, y2 = lmList[12][1:]
-        # print(x1, y1, x2, y2)
+    _, frame = cap.read()
+    frame = cv2.flip(frame, 1)
+    frame_height, frame_width, _ = frame.shape
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    output = hand_detector.process(rgb_frame)
+    hands = output.multi_hand_landmarks
 
-    # 3. Check which fingers are up
-    fingers = detector.fingersUp()
-    # print(fingers)
-    cv2.rectangle(img, (frameR, frameR), (wCam - frameR, hCam - frameR), (255, 0, 255), 2)
-    # 4. Only Index Finger : Moving Mode
-    if fingers[1] == 1 and fingers[2] == 0:
-        # 5. Convert Coordinates
-        x3 = np.interp(x1, (frameR, wCam - frameR), (0, wScr))
-        y3 = np.interp(y1, (frameR, hCam - frameR), (0, hScr))
-        # 6. Smoothen Values
-        clocX = plocX + (x3 - plocX) / smoothening
-        clocY = plocY + (y3 - plocY) / smoothening
+    if hands:
 
-        # 7. Move Mouse
-        autopy.mouse.move(wScr - clocX, clocY)
-        cv2.circle(img, (x1, y1), 15, (255, 0, 255), cv2.FILLED)
-        plocX, plocY = clocX, clocY
+        for hand in hands:
+            drawing_utils.draw_landmarks(frame, hand)
+            landmarks = hand.landmark
 
-    # 8. Both Index and middle fingers are up : Clicking Mode
-    if fingers[1] == 1 and fingers[2] == 1:
-        # 9. Find distance between fingers
-        length, img, lineInfo = detector.findDistance(8, 12, img)
-        print(length)
-        # 10. Click mouse if distance short
-        if length < 40:
-            cv2.circle(img, (lineInfo[4], lineInfo[5]), 15, (0, 255, 0), cv2.FILLED)
-            autopy.mouse.click()
+            for id, landmark in enumerate(landmarks):
+                x = int(landmark.x * frame_width)
+                y = int(landmark.y * frame_height)
+                # print(x, y)
 
-    # 11. Frame Rate
-    cTime = time.time()
-    fps = 1 / (cTime - pTime)
-    pTime = cTime
-    cv2.putText(img, str(int(fps)), (20, 50), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 0), 3)
-    # 12. Display
-    cv2.imshow("Image", img)
+                if id == 8:
+                    cv2.circle(img=frame, center=(x, y), radius=10, color=(0, 255, 255))
+                    index_x = screen_width / frame_width * x
+                    index_y = screen_height/ frame_height *y
+                    pyautogui.moveTo(index_x, index_y)
+
+                if id == 4:
+                    cv2.circle(img=frame, center=(x, y), radius=10, color=(0, 255, 255))
+                    thumb_x = screen_width / frame_width * x
+                    thumb_y = screen_height / frame_height * y
+
+                    if abs(index_y - thumb_y) < 20:
+                        pyautogui.click()
+                        pyautogui.sleep(1)
+
+    cv2.imshow("AI Mouse", frame)
     cv2.waitKey(1)
